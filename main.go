@@ -26,6 +26,8 @@ func main() {
 	}
 	tc := TermContext{pty: f}
 
+	e.File("/", "index.html")
+
 	e.GET("/websocket", tc.wsHandler)
 
 	e.Logger.Fatal(e.Start("127.0.0.1:8080"))
