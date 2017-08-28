@@ -20,13 +20,10 @@ type TermContext struct {
 func main() {
 	e := echo.New()
 
-	f, err := pty.Start(exec.Command("bash"))
-	if err != nil {
-		panic(err)
-	}
-	tc := TermContext{pty: f}
+	tc := TermContext{}
 
-	e.File("/", "index.html")
+	e.File("/", "static/index.html")
+	e.Static("/static", "static/")
 
 	e.GET("/websocket", tc.wsHandler)
 
@@ -36,6 +33,23 @@ func main() {
 func (tc *TermContext) wsHandler(c echo.Context) error {
 	websocket.Handler(func(ws *websocket.Conn) {
 		defer ws.Close()
+
+		var err error
+		tc.pty, err = pty.Start(exec.Command("bash"))
+		if err != nil {
+			panic(err)
+		}
+
+		// onOpen
+		buf := make([]byte, 1024)
+		size, err := tc.pty.Read(buf)
+		out, _ := json.Marshal([]string{"stdout", string(buf[:size])})
+		fmt.Println(string(out))
+		err = websocket.Message.Send(ws, string(out))
+		if err != nil {
+			c.Logger().Error(err)
+		}
+
 		for {
 			var err error
 
@@ -46,17 +60,20 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 				c.Logger().Error(err)
 			}
 
+			fmt.Println("****************************")
+
 			var dat []string
 			if err := json.Unmarshal([]byte(msg), &dat); err != nil {
-				panic(err)
+				c.Logger().Error(err)
+				return
 			}
 			msgType := dat[0]
 			command := dat[1]
-			fmt.Println(msgType, command)
+			fmt.Printf("%s %q\n", msgType, command)
 
 			switch msgType {
 			case "stdin":
-				done := make(chan bool, 2)
+				done := make(chan bool)
 
 				go func() {
 					// Write to pty
@@ -65,18 +82,20 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 				}()
 				go func() {
 					buf := make([]byte, 1024)
-					//io.Copy(os.Stdout, tc.pty)
 
-					_, err := tc.pty.Read(buf)
-					// Write back to ws
-					err = websocket.Message.Send(ws, string(buf))
-					if err != nil {
-						c.Logger().Error(err)
+					for {
+						size, err = tc.pty.Read(buf)
+
+						// Write back to ws
+						out, _ := json.Marshal([]string{"stdout", string(buf[:size])})
+						fmt.Println(string(out))
+						err = websocket.Message.Send(ws, string(out))
+						if err != nil {
+							c.Logger().Error(err)
+						}
 					}
-					done <- true
 				}()
 
-				<-done
 				<-done
 			case "set_size":
 			}
