@@ -41,18 +41,29 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 		}
 
 		// onOpen
-		buf := make([]byte, 1024)
-		size, err := tc.pty.Read(buf)
-		out, _ := json.Marshal([]string{"stdout", string(buf[:size])})
-		fmt.Println(string(out))
-		err = websocket.Message.Send(ws, string(out))
-		if err != nil {
-			c.Logger().Error(err)
-		}
+		go func() {
+			buf := make([]byte, 1024)
+
+			for {
+				// Read from pty
+				size, err := tc.pty.Read(buf)
+
+				// Write back to ws
+				out, err := json.Marshal([]string{"stdout", string(buf[:size])})
+				if err != nil {
+					panic(err)
+				}
+				fmt.Println(string(out))
+				//fmt.Println(string(buf[:size]))
+				fmt.Printf("%s\n", buf[:size])
+				err = websocket.Message.Send(ws, string(out))
+				if err != nil {
+					c.Logger().Error(err)
+				}
+			}
+		}()
 
 		for {
-			var err error
-
 			// Read from ws
 			msg := ""
 			err = websocket.Message.Receive(ws, &msg)
@@ -79,21 +90,6 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 					// Write to pty
 					tc.pty.Write([]byte(command))
 					done <- true
-				}()
-				go func() {
-					buf := make([]byte, 1024)
-
-					for {
-						size, err = tc.pty.Read(buf)
-
-						// Write back to ws
-						out, _ := json.Marshal([]string{"stdout", string(buf[:size])})
-						fmt.Println(string(out))
-						err = websocket.Message.Send(ws, string(out))
-						if err != nil {
-							c.Logger().Error(err)
-						}
-					}
 				}()
 
 				<-done
