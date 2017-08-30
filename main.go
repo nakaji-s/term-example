@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"golang.org/x/net/websocket"
@@ -47,15 +46,15 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 			for {
 				// Read from pty
 				size, err := tc.pty.Read(buf)
+				if err != nil {
+					c.Logger().Error(err)
+				}
 
 				// Write back to ws
 				out, err := json.Marshal([]string{"stdout", string(buf[:size])})
 				if err != nil {
-					panic(err)
+					c.Logger().Error(err)
 				}
-				fmt.Println(string(out))
-				//fmt.Println(string(buf[:size]))
-				fmt.Printf("%s\n", buf[:size])
 				err = websocket.Message.Send(ws, string(out))
 				if err != nil {
 					c.Logger().Error(err)
@@ -71,8 +70,6 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 				c.Logger().Error(err)
 			}
 
-			fmt.Println("****************************")
-
 			var dat []string
 			if err := json.Unmarshal([]byte(msg), &dat); err != nil {
 				c.Logger().Error(err)
@@ -80,19 +77,11 @@ func (tc *TermContext) wsHandler(c echo.Context) error {
 			}
 			msgType := dat[0]
 			command := dat[1]
-			fmt.Printf("%s %q\n", msgType, command)
 
 			switch msgType {
 			case "stdin":
-				done := make(chan bool)
-
-				go func() {
-					// Write to pty
-					tc.pty.Write([]byte(command))
-					done <- true
-				}()
-
-				<-done
+				// Write to pty
+				tc.pty.Write([]byte(command))
 			case "set_size":
 			}
 		}
